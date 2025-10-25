@@ -2,44 +2,120 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\User;
 use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use App\Http\Resources\UserResource;
+use App\Http\Requests\UserStoreRequest;
+use App\Http\Requests\UserUpdateRequest;
+use App\Services\Contracts\UserServiceInterface;
+use App\Models\User;
 
 class UserController extends Controller
 {
     /**
-     * Display a listing of all users.
+     * @var UserServiceInterface $userService
      */
-    public function index()
-    {
-        $users = User::all();
+    protected $userService;
 
-        return response()->json([
-            'success' => true,
-            'data' => $users,
-            'count' => $users->count()
-        ]);
+    /**
+     * Konstruktor UserController.
+     */
+    public function __construct(UserServiceInterface $userService)
+    {
+        $this->userService = $userService;
     }
 
     /**
-     * Display a listing of users with pagination.
+     * Display a listing of the resource.
      */
-    public function indexPaginated(Request $request)
+    public function index(Request $request)
     {
-        $perPage = $request->get('per_page', 5);
-        $users = User::paginate($perPage);
+        // Ambil parameter status dari query string
+        $status = $request->query('status');
 
-        return response()->json([
-            'success' => true,
-            'data' => $users->items(),
-            'pagination' => [
-                'current_page' => $users->currentPage(),
-                'last_page' => $users->lastPage(),
-                'per_page' => $users->perPage(),
-                'total' => $users->total(),
-                'from' => $users->firstItem(),
-                'to' => $users->lastItem(),
-            ]
+        if ($status === null) {
+            // Jika tidak ada query parameter, ambil semua user
+            $users = $this->userService->getAllUsers();
+        } elseif ($status == 1) {
+            // Jika status = 1, ambil user dengan status aktif
+            $users = $this->userService->getActiveUsers();
+        } elseif ($status == 0) {
+            // Jika status = 0 ambil user dengan status tidak aktif
+            $users = $this->userService->getInactiveUsers();
+        } else {
+            return response()->json(['error' => 'Invalid status parameter'], 400);
+        }
+
+        if (!$users) {
+            return response()->json(['message' => 'User tidak ditemukan'], 404);
+        }
+
+        return UserResource::collection($users);
+    }
+
+    /**
+     * Store a newly created resource in storage.
+     */
+    public function store(UserStoreRequest $request)
+    {
+        $user = $this->userService->createUser($request->all());
+        if (!$user) {
+            return response()->json(['message' => 'Gagal membuat user'], 400);
+        }
+        return new UserResource($user);
+    }
+
+    /**
+     * Display the specified resource.
+     */
+    public function show(string $id)
+    {
+        $user = $this->userService->getUserById((int) $id);
+        if (!$user) {
+            return response()->json(['message' => 'User tidak ditemukan'], 404);
+        }
+        return new UserResource($user);
+    }
+
+    /**
+     * Update the specified resource in storage.
+     */
+    public function update(UserUpdateRequest $request, string $id)
+    {
+        $user = $this->userService->updateUser((int) $id, $request->validated());
+        if (!$user) {
+            return response()->json(['message' => 'User tidak ditemukan'], 404);
+        }
+        return new UserResource($user);
+    }
+
+    /**
+     * Remove the specified resource from storage.
+     */
+    public function destroy(string $id)
+    {
+        $deleted = $this->userService->deleteUser((int) $id);
+
+        if (!$deleted) {
+            return response()->json(['message' => 'User tidak ditemukan'], 404);
+        }
+        return response()->json(['message' => 'User berhasil dihapus']);
+    }
+
+    /**
+     * Update Status User.
+     */
+    public function updateStatus(string $id, Request $request)
+    {
+        $request->validate([
+            'status' => 'required|in:Aktif,Tidak Aktif',
         ]);
+
+        $user = $this->userService->updateUserStatus((int) $id, $request->validated());
+
+        if (!$user) {
+            return response()->json(['message' => 'Failed to update user status'], 404);
+        }
+        return new UserResource($user);
     }
 }
